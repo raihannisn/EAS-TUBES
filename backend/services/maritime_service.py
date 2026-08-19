@@ -1,12 +1,39 @@
 import re
 import requests
 from urllib.parse import quote
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 BASE_URL = (
     "https://peta-maritim.bmkg.go.id/"
     "public_api/perairan/"
 )
+
+# Create session with retry strategy dan proper headers
+def create_session():
+    session = requests.Session()
+    
+    # Retry strategy
+    retry = Retry(
+        total=3,
+        connect=3,
+        backoff_factor=0.5,
+        status_forcelist=(500, 502, 504)
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    
+    # Set user agent untuk menghindari 403 dari Cloudflare
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    })
+    
+    return session
+
+# Global session instance
+_session = create_session()
 
 
 def get_maritime_data(maritime_code):
@@ -21,32 +48,33 @@ def get_maritime_data(maritime_code):
     )
 
     try:
-
-        response = requests.get(
+        print(f"[BMKG Maritime] Fetching data for code: {maritime_code}")
+        response = _session.get(
             url,
             timeout=20
         )
-
+        
         response.raise_for_status()
+        print(f"[BMKG Maritime] Status code: {response.status_code}")
 
         return normalize_maritime_data(
             response.json()
         )
 
+    except requests.exceptions.HTTPError as e:
+        print(f"[BMKG Maritime] HTTP error: {e}")
+        print(f"[BMKG Maritime] Response status: {e.response.status_code}")
+        print(f"[BMKG Maritime] Response text: {e.response.text[:500]}")
+        return None
+
     except requests.RequestException as e:
-
-        print(
-            f"Error koneksi BMKG maritim: {e}"
-        )
-
+        print(f"[BMKG Maritime] Connection error: {e}")
         return None
 
     except Exception as e:
-
-        print(
-            f"Error memproses data maritim BMKG: {e}"
-        )
-
+        print(f"[BMKG Maritime] Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 

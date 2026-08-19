@@ -1,34 +1,33 @@
 HYPOTHESES = {
     "H1": {
-        "name": "Kondisi relatif aman",
+        "name": "Aman melaut",
         "recommendation": (
-            "Nelayan dapat melaut dengan tetap mengikuti "
-            "informasi cuaca dan peringatan resmi BMKG."
+            "Nelayan dapat melaut karena kondisi tidak hujan. "
+            "Tetap pantau informasi dan peringatan resmi BMKG."
         )
     },
 
     "H2": {
-        "name": "Kondisi perlu kewaspadaan",
+        "name": "Melaut dengan kewaspadaan",
         "recommendation": (
-            "Nelayan dapat melaut dengan kewaspadaan lebih tinggi, "
-            "membatasi area dan durasi aktivitas."
+            "Nelayan dapat melaut dengan kewaspadaan lebih tinggi "
+            "dan membatasi area serta durasi aktivitas."
         )
     },
 
     "H3": {
-        "name": "Kondisi tidak aman untuk berangkat",
+        "name": "Menunda aktivitas melaut",
         "recommendation": (
-            "Nelayan disarankan menunda keberangkatan "
-            "sampai kondisi cuaca dan laut membaik."
+            "Nelayan disarankan menunda aktivitas melaut "
+            "sampai hujan berhenti dan kondisi membaik."
         )
     },
 
     "H4": {
-        "name": "Kondisi berbahaya saat di laut",
+        "name": "Tidak disarankan melaut",
         "recommendation": (
-            "Nelayan yang sudah berada di laut disarankan "
-            "mengurangi atau menghentikan aktivitas dan menuju "
-            "titik aman sesuai kondisi."
+            "Nelayan tidak disarankan melaut karena kondisi cuaca ekstrem. "
+            "Nelayan yang sudah berada di laut perlu menuju titik aman."
         )
     }
 }
@@ -490,45 +489,33 @@ def calculate_reasoning(
         scores["H3"] = 0
 
     # =========================================================
-    # E11. PEMILIHAN HIPOTESIS
+    # E11. KEPUTUSAN BERDASARKAN KELAS CUACA
     # =========================================================
-
-    priority = {
-        "H4": 4,
-        "H3": 3,
-        "H2": 2,
-        "H1": 1
+    # Kelas cuaca adalah sumber keputusan tunggal. Angin dan gelombang
+    # tetap menjadi evidence, tetapi tidak mengubah H1-H4 secara silang.
+    classification_to_hypothesis = {
+        "TIDAK_HUJAN": "H1",
+        "MENDUNG": "H2",
+        "HUJAN": "H3",
+        "EKSTREM": "H4"
     }
 
-    selected_hypothesis = max(
-        candidate_hypotheses,
-        key=lambda h: (
-            scores[h],
-            priority[h]
-        )
+    selected_hypothesis = classification_to_hypothesis.get(
+        classification,
+        "H2"
     )
+    scores = {
+        hypothesis: 100 if hypothesis == selected_hypothesis else 0
+        for hypothesis in ["H1", "H2", "H3", "H4"]
+    }
+    candidate_hypotheses = ["H1", "H2", "H3", "H4"]
+    confidence = 100.0
 
-    # =========================================================
-    # E12. CONFIDENCE
-    # =========================================================
-
-    candidate_scores = [
-        scores[h]
-        for h in candidate_hypotheses
-    ]
-
-    total_score = sum(candidate_scores)
-
-    if total_score > 0:
-
-        confidence = (
-            scores[selected_hypothesis]
-            / total_score
-        ) * 100
-
-    else:
-
-        confidence = 0
+    evidence.append(
+        f"Keputusan {selected_hypothesis} ditetapkan langsung dari "
+        f"kelas cuaca {classification}; faktor laut ditampilkan sebagai "
+        "peringatan tambahan dan tidak mengganti kelas cuaca."
+    )
 
     # =========================================================
     # RETURN

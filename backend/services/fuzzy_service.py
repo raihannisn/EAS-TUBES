@@ -19,6 +19,50 @@ def classify_weather(
     EKSTREM
     """
 
+    # Keputusan cuaca memakai urutan prioritas yang eksplisit agar kelas
+    # tidak berubah hanya karena membership angin atau kelembapan.
+    try:
+        rain_value = float(precipitation or 0)
+    except (TypeError, ValueError):
+        rain_value = 0
+
+    try:
+        cloud_value = float(cloud_cover or 0)
+    except (TypeError, ValueError):
+        cloud_value = 0
+
+    condition = str(weather_condition or "").strip().lower()
+
+    if any(term in condition for term in ["ekstrem", "ekstrim", "petir"]):
+        classification = "EKSTREM"
+    elif "hujan" in condition or rain_value >= 1:
+        classification = "HUJAN"
+    elif any(term in condition for term in ["mendung", "berawan"]):
+        classification = "MENDUNG"
+    elif cloud_value >= 60:
+        classification = "MENDUNG"
+    else:
+        classification = "TIDAK_HUJAN"
+
+    memberships = {
+        "TIDAK_HUJAN": 1.0 if classification == "TIDAK_HUJAN" else 0.0,
+        "MENDUNG": 1.0 if classification == "MENDUNG" else 0.0,
+        "HUJAN": 1.0 if classification == "HUJAN" else 0.0,
+        "EKSTREM": 1.0 if classification == "EKSTREM" else 0.0
+    }
+
+    return {
+        "classification": classification,
+        "membership": memberships,
+        "input": {
+            "precipitation": precipitation,
+            "humidity": humidity,
+            "wind_speed": wind_speed,
+            "cloud_cover": cloud_cover,
+            "weather_condition": weather_condition
+        }
+    }
+
     # =========================
     # 1. DOMAIN
     # =========================

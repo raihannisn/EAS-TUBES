@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   createRoot
 } from "react-dom/client";
@@ -736,7 +736,7 @@ function Sidebar({
     [
       "/history",
       History,
-      "Riwayat Keputusan"
+      "Riwayat AI"
     ],
 
     [
@@ -1066,26 +1066,18 @@ function LocationPanel({
   const handleDesaSelect = async (desaCode) => {
     setSelectedDesa(desaCode);
 
-    const desaData = desa.find((d) => d.code === desaCode);
-    if (desaData && onSelectLocation) {
-      const useCoords = deviceLocation || {
-        latitude: -6.2088,
-        longitude: 106.8456
-      };
+    if (!onSelectLocation) return;
 
-      const nearestResult = await apiPost(
-        "/api/location/nearest",
-        useCoords,
-        null
-      );
+    // Ambil lokasi dari backend berdasarkan adm4 code
+    const locationResponse = await apiGet(
+      `/api/location/${encodeURIComponent(desaCode)}`,
+      null
+    );
 
-      if (nearestResult?.success && nearestResult.location) {
-        onSelectLocation({
-          ...nearestResult.location,
-          desa_code: desaCode,
-          desa_name: desaData.name
-        });
-      }
+    if (locationResponse?.success && locationResponse.location) {
+      onSelectLocation(locationResponse.location);
+    } else {
+      console.warn(`Lokasi dengan adm4 ${desaCode} tidak ditemukan di backend`);
     }
   };
 
@@ -1542,21 +1534,21 @@ function RecommendationCard({
 
   if (hypothesis === "H1") {
     title =
-      "KONDISI RELATIF AMAN";
+      "AMAN MELAUT";
     type =
       "safe";
   }
 
   if (hypothesis === "H2") {
     title =
-      "WASPADA SAAT MELAUT";
+      "MELAUT DENGAN KEWASPADAAN";
     type =
       "warning";
   }
 
   if (hypothesis === "H3") {
     title =
-      "SEBAIKNYA TUNDA KEBERANGKATAN";
+      "MENUNDA AKTIVITAS MELAUT";
     type =
       "danger";
   }
@@ -1594,17 +1586,6 @@ function RecommendationCard({
 
         {reasoning?.confidence != null && (
           <div className="confidence">
-
-            <span>
-              CONFIDENCE PENALARAN
-            </span>
-
-            <strong>
-              {Number(
-                reasoning.confidence
-              ).toFixed(2)}
-              %
-            </strong>
 
           </div>
         )}
@@ -1965,8 +1946,17 @@ function Dashboard() {
   const [locations, setLocations] =
     useState([]);
 
+  // Keep the active location while navigating in the current tab only.
   const [selectedLocation, setSelectedLocation] =
-    useState(null);
+    useState(() => {
+      const saved = sessionStorage.getItem("selectedLocation");
+      try {
+        return saved ? JSON.parse(saved) : null;
+      } catch {
+        sessionStorage.removeItem("selectedLocation");
+        return null;
+      }
+    });
 
   const [deviceLocation, setDeviceLocation] =
     useState(null);
@@ -1980,12 +1970,24 @@ function Dashboard() {
   const [locating, setLocating] =
     useState(false);
 
+  const loadRequestRef = useRef(0);
+
 
   /* =====================================================
      LOAD DATA
   ===================================================== */
 
   const loadData = async () => {
+
+    const requestId = ++loadRequestRef.current;
+
+    if (!selectedLocation?.adm4) {
+      setWeather(null);
+      setMaritime(null);
+      setRecommendation(null);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
 
@@ -2005,6 +2007,8 @@ function Dashboard() {
         `/api/recommendation?fisherman_status=${status}${selectedLocation ? `&adm4=${encodeURIComponent(selectedLocation.adm4)}&maritime_code=${encodeURIComponent(selectedLocation.maritime_code || "")}` : ""}`,
         null
       );
+
+    if (requestId !== loadRequestRef.current) return;
 
 
     /*
@@ -2045,10 +2049,7 @@ function Dashboard() {
       null;
 
 
-    setWeather(
-      atmosphere ||
-      fallbackWeather
-    );
+    setWeather(atmosphere);
 
 
     setMaritime(
@@ -2065,6 +2066,18 @@ function Dashboard() {
   };
 
 
+  // Save the explicit selection for navigation within this tab.
+  useEffect(() => {
+    if (selectedLocation) {
+      sessionStorage.setItem(
+        "selectedLocation",
+        JSON.stringify(selectedLocation)
+      );
+    } else {
+      sessionStorage.removeItem("selectedLocation");
+    }
+  }, [selectedLocation]);
+
   useEffect(() => {
     const fetchLocations = async () => {
       const result = await apiGet(
@@ -2074,13 +2087,6 @@ function Dashboard() {
 
       const nextLocations = result?.locations || [];
       setLocations(nextLocations);
-
-      // Jangan pilih lokasi default secara otomatis.
-      // Lokasi baru hanya dipilih setelah pengguna menyelesaikan
-      // pemilihan wilayah atau menekan tombol "Gunakan Lokasi Saya".
-      if (!selectedLocation && nextLocations.length > 0) {
-        setSelectedLocation(null);
-      }
     };
 
     fetchLocations();
@@ -2174,24 +2180,16 @@ function Dashboard() {
      DATA UNTUK RENDER
   ===================================================== */
 
-  const location =
-    weather?.location ||
-    fallbackWeather.location;
+  const location = weather?.location || null;
 
 
-  const weatherData =
-    weather?.weather ||
-    fallbackWeather.weather;
+  const weatherData = weather?.weather || {};
 
 
-  const reasoning =
-    recommendation?.reasoning ||
-    fallbackRecommendation.reasoning;
+  const reasoning = recommendation?.reasoning || null;
 
 
-  const maritimeForecast =
-    maritime?.forecast ||
-    fallbackRecommendation.maritime.forecast;
+  const maritimeForecast = maritime?.forecast || null;
 
 
   return (
@@ -2295,6 +2293,12 @@ function Dashboard() {
           setAutoFillAdm4(null);
           setLocationMode("manual");
           setSelectedLocation(nextLocation);
+
+          if (!nextLocation) {
+            setWeather(null);
+            setMaritime(null);
+            setRecommendation(null);
+          }
         }}
         locationMode={locationMode}
         autoFillAdm4={autoFillAdm4}
@@ -2703,49 +2707,47 @@ function Reasoning() {
 
 function HistoryPage() {
 
-  const rows = [
+  const [
+    history,
+    setHistory
+  ] = useState([]);
 
-    [
-      "17 Agu 2026",
-      "Belum berangkat",
-      "Angin 10 km/jam · Hujan 0 mm",
-      "H3",
-      "Tunda"
-    ],
+  const [
+    activeFilter,
+    setActiveFilter
+  ] = useState("all");
 
-    [
-      "16 Agu 2026",
-      "Belum berangkat",
-      "Gelombang tinggi · Angin kuat",
-      "H4",
-      "Berbahaya"
-    ],
+  useEffect(() => {
+    const savedHistory = localStorage.getItem("aiChatHistory");
 
-    [
-      "15 Agu 2026",
-      "Sudah melaut",
-      "Petir terdeteksi",
-      "H4",
-      "Berbahaya"
-    ],
+    try {
+      const parsedHistory = savedHistory
+        ? JSON.parse(savedHistory)
+        : [];
 
-    [
-      "14 Agu 2026",
-      "Belum berangkat",
-      "Hujan 30 mm · Angin 12 knot",
-      "H2",
-      "Waspada"
-    ],
+      setHistory(Array.isArray(parsedHistory) ? parsedHistory : []);
+    } catch {
+      setHistory([]);
+    }
+  }, []);
 
-    [
-      "13 Agu 2026",
-      "Belum berangkat",
-      "Cerah · Angin rendah",
-      "H1",
-      "Aman"
-    ]
+  const clearHistory = () => {
+    if (window.confirm("Hapus semua riwayat percakapan?")) {
+      localStorage.removeItem("aiChatHistory");
+      setHistory([]);
+    }
+  };
 
-  ];
+  const formatDate = (createdAt) => {
+    try {
+      return new Intl.DateTimeFormat("id-ID", {
+        dateStyle: "medium",
+        timeStyle: "short"
+      }).format(new Date(createdAt));
+    } catch {
+      return createdAt || "-";
+    }
+  };
 
 
   return (
@@ -2756,12 +2758,16 @@ function HistoryPage() {
         <div>
 
           <div className="eyebrow">
-            LOG REKOMENDASI SISTEM
+            RIWAYAT TANYA AI
           </div>
 
           <h1>
-            Riwayat Keputusan
+            Riwayat AI
           </h1>
+
+          <p>
+            Percakapan Tanya AI yang tersimpan dapat dilihat kembali di sini.
+          </p>
 
         </div>
 
@@ -2770,111 +2776,104 @@ function HistoryPage() {
 
       <div className="filters">
 
-        <button>
+        <button
+          className={activeFilter === "all" ? "active" : ""}
+          onClick={() => setActiveFilter("all")}
+        >
           Semua
         </button>
 
-        <button>
-          H1 · Aman
-        </button>
-
-        <button>
-          H2 · Waspada
-        </button>
-
-        <button>
-          H3 · Tunda
-        </button>
-
-        <button>
-          H4 · Berbahaya
+        <button onClick={clearHistory}>
+          Hapus Riwayat
         </button>
 
       </div>
 
+      {history.length === 0 ? (
 
-      <section className="panel history-table">
+        <section className="panel history-empty">
 
-        <div className="table-wrap">
+          <h2>
+            Belum ada percakapan
+          </h2>
 
-          <table>
+          <p>
+            Percakapan dari Tanya AI akan muncul di sini setelah pertanyaan dijawab.
+          </p>
 
-            <thead>
+        </section>
 
-              <tr>
+      ) : (
 
-                <th>
-                  TANGGAL
-                </th>
+        <section className="panel history-table">
 
-                <th>
-                  STATUS NELAYAN
-                </th>
+          <div className="table-wrap">
 
-                <th>
-                  EVIDENCE
-                </th>
+            <table>
 
-                <th>
-                  HIPOTESIS
-                </th>
+              <thead>
 
-                <th>
-                  STATUS
-                </th>
+                <tr>
 
-              </tr>
+                  <th>
+                    WAKTU
+                  </th>
 
-            </thead>
+                  <th>
+                    LOKASI
+                  </th>
 
+                  <th>
+                    PERTANYAAN
+                  </th>
 
-            <tbody>
+                  <th>
+                    JAWABAN
+                  </th>
 
-              {rows.map(
-                (row) => (
+                </tr>
 
-                  <tr key={row[0]}>
+              </thead>
 
-                    <td>
-                      {row[0]}
-                    </td>
+              <tbody>
 
-                    <td>
-                      {row[1]}
-                    </td>
+                {history
+                  .filter(() => activeFilter === "all")
+                  .map(
+                    (record, index) => (
 
-                    <td>
-                      {row[2]}
-                    </td>
+                      <tr key={record.id || `${record.createdAt}-${index}`}>
 
-                    <td>
+                        <td>
+                          {formatDate(record.createdAt)}
+                        </td>
 
-                      <span
-                        className={
-                          `badge ${row[3].toLowerCase()}`
-                        }
-                      >
-                        {row[3]}
-                      </span>
+                        <td>
+                          {record.location || record.adm4 || "Lokasi belum dipilih"}
+                        </td>
 
-                    </td>
+                        <td className="history-question">
+                          {record.question || "-"}
+                        </td>
 
-                    <td>
-                      {row[4]}
-                    </td>
+                        <td className="history-answer">
+                          {record.answer || "-"}
+                        </td>
 
-                  </tr>
+                      </tr>
 
-                )
-              )}
+                    )
+                  )}
 
-            </tbody>
+              </tbody>
 
-          </table>
+            </table>
 
-        </div>
+          </div>
 
-      </section>
+        </section>
+
+      )}
 
     </AppShell>
   );
@@ -2887,10 +2886,19 @@ function HistoryPage() {
 
 function AIPage() {
 
+  // Share the active location while navigating in the current tab.
   const [
     selectedLocation,
     setSelectedLocation
-  ] = useState(null);
+  ] = useState(() => {
+    const saved = sessionStorage.getItem("selectedLocation");
+    try {
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      sessionStorage.removeItem("selectedLocation");
+      return null;
+    }
+  });
 
   const [
     messages,
@@ -2924,8 +2932,7 @@ function AIPage() {
         { success: false, locations: [] }
       );
 
-      const nextLocations = result?.locations || [];
-      setSelectedLocation(nextLocations[0] || null);
+      if (!result?.success) return;
     };
 
     fetchLocations();
@@ -2968,12 +2975,38 @@ function AIPage() {
       { success: false, answer: "Saya tidak bisa menjawab saat ini karena data tidak tersedia." }
     );
 
+    const answer =
+      result?.answer ||
+      "Saya tidak bisa menjawab saat ini karena data tidak tersedia.";
+
+    try {
+      const savedHistory = JSON.parse(
+        localStorage.getItem("aiChatHistory") || "[]"
+      );
+
+      savedHistory.unshift({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        createdAt: new Date().toISOString(),
+        question,
+        answer,
+        location: selectedLocation?.name || "Lokasi belum dipilih",
+        adm4: selectedLocation?.adm4 || null
+      });
+
+      localStorage.setItem(
+        "aiChatHistory",
+        JSON.stringify(savedHistory.slice(0, 100))
+      );
+    } catch {
+      // Ignore storage errors; the answer remains available in the chat.
+    }
+
     setMessages(
       (current) => [
         ...current,
         {
           from: "ai",
-          text: result?.answer || "Saya tidak bisa menjawab saat ini karena data tidak tersedia."
+          text: answer
         }
       ]
     );
@@ -2996,6 +3029,12 @@ function AIPage() {
           <h1>
             Tanya AI
           </h1>
+
+          {selectedLocation && (
+            <p className="page-subtitle">
+              📍 Lokasi: {selectedLocation.name}
+            </p>
+          )}
 
         </div>
 

@@ -2,25 +2,26 @@ from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.services.bmkg_service import (
+from ..services.bmkg_service import (
     get_weather_data,
     get_bmkg_location_catalog,
-    find_nearest_location
+    find_nearest_location,
+    get_location_by_adm4
 )
 
-from backend.services.maritime_service import (
+from ..services.maritime_service import (
     get_maritime_data
 )
 
-from backend.services.fuzzy_service import (
+from ..services.fuzzy_service import (
     classify_weather
 )
 
-from backend.services.reasoning_service import (
+from ..services.reasoning_service import (
     calculate_reasoning
 )
 
-from backend.services.regional_service import (
+from ..services.regional_service import (
     get_all_provinces,
     get_kabupaten_by_province,
     get_kecamatan_by_kabupaten,
@@ -90,28 +91,158 @@ def build_grounded_ai_answer(question: str, context: dict) -> str:
     classification = fuzzy.get("classification") or "-"
 
     base = (
-        f"Berdasarkan data BMKG di {place}, kondisi cuaca saat ini adalah {condition}. "
-        f"Suhu {temperature if temperature is not None else '-'} °C, kelembapan {humidity if humidity is not None else '-'}%, "
-        f"curah hujan {precipitation if precipitation is not None else '-'} mm, angin atmosfer {wind_speed if wind_speed is not None else '-'} km/jam, "
-        f"gelombang {wave_height if wave_height is not None else '-'} m, dan kategori angin {ffx if ffx else '-'} . "
-        f"Klasifikasi fuzzy menunjukkan {classification}. "
-        f"Sistem memilih hipotesis {hypothesis} ({hypothesis_name}) dengan confidence {confidence if confidence is not None else '-'}%. "
-        f"Rekomendasi: {recommendation_text}"
+        f"📍 Lokasi: {place}\n"
+        f"🌤️ Kondisi: {condition}\n"
+        f"🌡️ Suhu: {temperature if temperature is not None else '-'} °C | 💧 Kelembapan: {humidity if humidity is not None else '-'}%\n"
+        f"🌧️ Curah Hujan: {precipitation if precipitation is not None else '-'} mm | 💨 Angin: {wind_speed if wind_speed is not None else '-'} km/jam\n"
+        f"☁️ Tutupan Awan: {cloud_cover if cloud_cover is not None else '-'}%\n"
+        f"🌊 Gelombang: {wave_height if wave_height is not None else '-'} m | 💨 Angin Rata-rata: {wind_avg if wind_avg is not None else '-'} knot | Maks: {wind_max if wind_max is not None else '-'} knot\n"
+        f"📊 Kategori FFX: {ffx if ffx else '-'}\n\n"
+        f"🔍 Analisis Sistem:\n"
+        f"- Klasifikasi Fuzzy: {classification}\n"
+        f"- Hipotesis Terpilih: {hypothesis} ({hypothesis_name})\n"
+        f"- Confidence Level: {confidence if confidence is not None else '-'}%\n"
+        f"- Rekomendasi: {recommendation_text}"
     )
 
+    # Tentukan apakah aman melaut berdasarkan hypothesis
+    is_safe_to_fish = hypothesis in ["H1", "H2"]
+    is_potentially_dangerous = hypothesis in ["H3", "H4"]
+
+    # Reasoning tentang aktivitas nelayan
+    fishing_reasoning = ""
+    
+    if is_safe_to_fish:
+        fishing_reasoning = (
+            f"\n\n✅ ANALISIS MENGAPA PELAUT/NELAYAN BISA MELAKUKAN AKTIVITAS:\n"
+            f"Berdasarkan hipotesis {hypothesis_name} dengan confidence {confidence}%, "
+            f"kondisi cuaca dan maritim di {place} masih dalam kategori yang relatif aman untuk aktivitas melaut.\n\n"
+            f"🎯 Alasan Utama Bisa Melaut/Memancing:\n"
+            f"1. Gelombang rendah ({wave_height if wave_height is not None else 'moderat'} m) - "
+            f"stabilitas kapal terjaga\n"
+            f"2. Angin dalam batas aman ({wind_avg if wind_avg is not None else 'moderat'} knot rata-rata) - "
+            f"operasional kapal lancar\n"
+            f"3. Curah hujan minimal ({precipitation if precipitation is not None else 'sedikit'} mm) - "
+            f"visibilitas baik\n"
+            f"4. Kategori FFX {ffx or 'moderat'} - risiko relatif rendah\n\n"
+            f"💡 Rekomendasi Aksi:\n"
+            f"✓ Nelayan BISA berangkat untuk melaut/memancing\n"
+            f"✓ Disarankan berangkat pagi untuk menghindari perubahan cuaca\n"
+            f"✓ Tetap pantau prakiraan cuaca BMKG sebelum berangkat\n"
+            f"✓ Pastikan kapal dan equipment dalam kondisi baik"
+        )
+    elif is_potentially_dangerous:
+        fishing_reasoning = (
+            f"\n\n⚠️ ANALISIS MENGAPA PELAUT/NELAYAN HARUS WASPADA/BATAL MELAUT:\n"
+            f"Berdasarkan hipotesis {hypothesis_name} dengan confidence {confidence}%, "
+            f"kondisi cuaca dan maritim di {place} menunjukkan risiko yang signifikan untuk aktivitas melaut.\n\n"
+            f"🚫 Alasan Utama Tidak Disarankan/Dilarang Melaut:\n"
+            f"1. Gelombang tinggi ({wave_height if wave_height is not None else 'tinggi'} m) - "
+            f"risiko keselamatan kapal meningkat\n"
+            f"2. Angin kuat ({wind_max if wind_max is not None else 'tinggi'} knot maksimal) - "
+            f"navigasi sulit dan berbahaya\n"
+            f"3. Curah hujan tinggi ({precipitation if precipitation is not None else 'tinggi'} mm) - "
+            f"visibilitas terbatas\n"
+            f"4. Kategori FFX {ffx or 'tinggi'} - risiko sangat tinggi\n\n"
+            f"❌ Rekomendasi Aksi:\n"
+            f"✗ Nelayan SEBAIKNYA TIDAK/BATAL berangkat untuk melaut/memancing\n"
+            f"✗ Tunggu hingga kondisi cuaca membaik\n"
+            f"✗ Jika terpaksa harus melaut, tingkatkan kewaspadaan dan siapkan protokol darurat\n"
+            f"✗ Pastikan semua crew menguasai teknik penyelamatan diri"
+        )
+    else:
+        fishing_reasoning = (
+            f"\n\n🔎 ANALISIS KONDISI AKTIVITAS NELAYAN:\n"
+            f"Berdasarkan hipotesis {hypothesis_name} dengan confidence {confidence}%, "
+            f"sistem merekomendasikan: {recommendation_text}\n\n"
+            f"Kondisi saat ini di {place} memerlukan pertimbangan khusus sebelum melaut."
+        )
+
+    # Selaraskan penjelasan AI dengan keputusan H1-H4. Faktor laut tetap
+    # ditampilkan sebagai evidence tambahan, bukan alasan untuk mengganti
+    # kelas cuaca utama.
+    if hypothesis == "H1":
+        fishing_reasoning = (
+            f"\n\n✅ KESIMPULAN AKTIVITAS NELAYAN:\n"
+            f"Kondisi cuaca di {place} masuk kelas TIDAK_HUJAN, sehingga "
+            "keputusan sistem adalah H1: Aman melaut.\n\n"
+            f"Evidence cuaca: curah hujan {precipitation if precipitation is not None else '-'} mm, "
+            f"tutupan awan {cloud_cover if cloud_cover is not None else '-'}%, "
+            f"dan kondisi {condition}.\n"
+            f"Evidence laut: gelombang {wave_height if wave_height is not None else '-'} m, "
+            f"angin rata-rata {wind_avg if wind_avg is not None else '-'} knot, "
+            f"kategori FFX {ffx or '-'}. Data laut tetap perlu dipantau sebelum berangkat.\n\n"
+            "💡 Tindakan: Nelayan dapat melaut, tetap membawa perlengkapan keselamatan "
+            "dan mengikuti pembaruan BMKG."
+        )
+    elif hypothesis == "H2":
+        fishing_reasoning = (
+            f"\n\n⚠️ KESIMPULAN AKTIVITAS NELAYAN:\n"
+            f"Kondisi cuaca di {place} masuk kelas MENDUNG, sehingga "
+            "keputusan sistem adalah H2: Melaut dengan kewaspadaan.\n\n"
+            f"Evidence cuaca: curah hujan {precipitation if precipitation is not None else '-'} mm, "
+            f"tutupan awan {cloud_cover if cloud_cover is not None else '-'}%, "
+            f"dan kondisi {condition}.\n"
+            f"Periksa gelombang {wave_height if wave_height is not None else '-'} m dan "
+            f"angin maksimum {wind_max if wind_max is not None else '-'} knot sebelum berangkat.\n\n"
+            "💡 Tindakan: Batasi area dan durasi melaut, serta tingkatkan kewaspadaan."
+        )
+    elif hypothesis == "H3":
+        fishing_reasoning = (
+            f"\n\n⏸️ KESIMPULAN AKTIVITAS NELAYAN:\n"
+            f"Kondisi cuaca di {place} masuk kelas HUJAN, sehingga "
+            "keputusan sistem adalah H3: Menunda aktivitas melaut.\n\n"
+            f"Evidence cuaca: curah hujan {precipitation if precipitation is not None else '-'} mm "
+            f"dan kondisi {condition}. Hujan dapat menurunkan visibilitas dan kenyamanan operasi.\n"
+            f"Data laut: gelombang {wave_height if wave_height is not None else '-'} m, "
+            f"angin maksimum {wind_max if wind_max is not None else '-'} knot.\n\n"
+            "💡 Tindakan: Tunda keberangkatan sampai hujan berhenti dan kondisi ditinjau ulang."
+        )
+    else:
+        fishing_reasoning = (
+            f"\n\n🚫 KESIMPULAN AKTIVITAS NELAYAN:\n"
+            f"Kondisi cuaca di {place} masuk kelas EKSTREM, sehingga "
+            "keputusan sistem adalah H4: Tidak disarankan melaut.\n\n"
+            f"Evidence: kondisi {condition}, curah hujan {precipitation if precipitation is not None else '-'} mm, "
+            f"angin maksimum {wind_max if wind_max is not None else '-'} knot, "
+            f"dan gelombang {wave_height if wave_height is not None else '-'} m.\n\n"
+            "💡 Tindakan: Jangan berangkat. Jika sudah berada di laut, segera menuju titik aman "
+            "sesuai prosedur keselamatan."
+        )
+
+    # Tambahkan handling untuk pertanyaan spesifik
+    if "memancing" in str(question).lower():
+        return (
+            base + fishing_reasoning + 
+            f"\n\n📌 Khusus untuk aktivitas memancing:\n"
+            f"- Waktu terbaik memancing biasanya pagi (5-9 AM) atau sore (4-7 PM)\n"
+            f"- Lokasi memancing sebaiknya {'' if is_safe_to_fish else 'dekat pantai atau '}"
+            f"di area dengan riwayat hasil tangkapan bagus\n"
+            f"- Persiapkan perlengkapan sesuai prediksi gelombang dan angin"
+        )
+
+    if "nelayan" in str(question).lower() or "melaut" in str(question).lower():
+        return base + fishing_reasoning
+
     if "hujan" in str(question).lower():
-        return base + " Karena pertanyaan Anda terkait hujan, fokus utama adalah curah hujan dan visibilitas. Jika hujan kuat, risiko keputusan melaut meningkat."
+        return base + " Untuk pertanyaan tentang hujan: curah hujan saat ini adalah " + \
+               f"{precipitation if precipitation is not None else '-'} mm. Hujan" + \
+               (" akan menurunkan visibilitas dan meningkatkan risiko melaut." \
+               if precipitation and precipitation > 1 else " masih dalam kondisi aman.")
 
     if "angin" in str(question).lower():
-        return base + " Untuk angin, nilai yang paling relevan adalah angin rata-rata dan maksimum serta kategori FFX. Semakin tinggi angin, semakin besar risiko keputusan melaut."
+        return base + f" Untuk pertanyaan tentang angin: angin atmosfer saat ini {wind_speed if wind_speed is not None else '-'} km/jam " + \
+               f"dengan angin maritim rata-rata {wind_avg if wind_avg is not None else '-'} knot dan maksimal {wind_max if wind_max is not None else '-'} knot. " + \
+               ("Angin dalam kondisi kuat dan perlu kewaspadaan." if wind_max and wind_max > 15 else "Angin masih dalam batas operasional.")
 
     if "gelombang" in str(question).lower() or "ombak" in str(question).lower():
-        return base + " Gelombang dan tinggi gelombang adalah indikator utama untuk keberangkatan. Gelombang yang tinggi memengaruhi stabilitas dan keselamatan kapal."
+        return base + f" Untuk pertanyaan tentang gelombang: tinggi gelombang saat ini {wave_height if wave_height is not None else '-'} meter. " + \
+               ("Gelombang tinggi, operasional terbatas dan berbahaya." if wave_height and wave_height > 2 else "Gelombang dalam kondisi operasional.")
 
-    if "aman" in str(question).lower() or "melaut" in str(question).lower():
-        return base + " Berdasarkan evidence saat ini, keputusan melaut harus diambil dengan mempertimbangkan kondisi cuaca, gelombang, dan angin secara bersamaan, bukan hanya satu parameter saja."
+    if "aman" in str(question).lower():
+        return base + fishing_reasoning
 
-    return base + " Saya menjawab berdasarkan data cuaca, maritim, dan hasil reasoning yang sedang aktif di dashboard."
+    return base + fishing_reasoning
 
 
 def call_openai_chat(question: str, context: dict) -> str:
@@ -212,14 +343,6 @@ def get_all_weather_data(adm4=None, maritime_code=None):
     }
 
 
-@app.get("/api/locations")
-def locations():
-    return {
-        "success": True,
-        "locations": get_bmkg_location_catalog()
-    }
-
-
 @app.get("/api/regions/provinces")
 def regions_provinces():
     """Get all provinces (level 1)."""
@@ -271,6 +394,30 @@ def regions_desa(kecamatan_code: str = None):
     return {
         "success": True,
         "data": get_desa_by_kecamatan(kecamatan_code)
+    }
+
+
+@app.get("/api/locations")
+def locations():
+    return {
+        "success": True,
+        "locations": get_bmkg_location_catalog()
+    }
+
+
+@app.get("/api/location/{adm4}")
+def location_by_adm4(adm4: str):
+    """Get location info by ADM4 code."""
+    loc = get_location_by_adm4(adm4)
+    if loc is None:
+        return {
+            "success": False,
+            "message": f"Lokasi dengan adm4 {adm4} tidak ditemukan"
+        }
+    
+    return {
+        "success": True,
+        "location": loc
     }
 
 

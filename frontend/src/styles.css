@@ -847,10 +847,21 @@ footer {
   border-radius: 8px;
   padding: 10px 12px;
   color: var(--text);
+  -webkit-text-fill-color: var(--text);
   font-size: 13px;
   cursor: pointer;
   transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+}
+
+.selector-group select option {
+  background: #f4f7f9;
+  color: #102f46;
+  -webkit-text-fill-color: #102f46;
+}
+
+.selector-group select option:disabled {
+  color: #71849b;
 }
 
 .selector-group select:hover:not(:disabled) {
@@ -868,6 +879,8 @@ footer {
   opacity: 0.5;
   cursor: not-allowed;
   background: rgba(21, 33, 44, 0.9);
+  color: #b7c8d8;
+  -webkit-text-fill-color: #b7c8d8;
 }
 
 /* WEATHER */
@@ -1280,6 +1293,30 @@ footer {
   color: var(--aqua);
 }
 
+.filters button.active {
+  border-color: var(--aqua);
+  background: rgba(60, 202, 189, 0.1);
+  color: var(--aqua);
+}
+
+.history-empty {
+  padding: 42px 28px;
+  text-align: center;
+}
+
+.history-empty h2 {
+  margin: 0 0 8px;
+  color: var(--cream);
+  font-size: 27px;
+  font-weight: 500;
+}
+
+.history-empty p {
+  margin: 0;
+  color: #8da0b4;
+  font-size: 12px;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -1303,6 +1340,30 @@ th {
   color: #71879c;
   font-size: 8px;
   letter-spacing: 2px;
+}
+
+.history-table th,
+.history-table td {
+  vertical-align: top;
+}
+
+.history-table .history-question,
+.history-table .history-answer {
+  min-width: 220px;
+  max-width: 420px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+
+.history-table .history-question {
+  color: #dce7f2;
+  font-weight: 500;
+}
+
+.history-table .history-answer {
+  min-width: 360px;
+  color: #aebdca;
 }
 
 .badge {
